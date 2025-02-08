@@ -1,0 +1,15 @@
+# Node.js
+node_modules/
+
+# Quasar
+.quasar/
+dist/
+
+# Archivos de configuración de editor
+.vscode/
+
+# Archivos de configuración del sistema
+.env
+
+# Archivos de logs
+*.log
