@@ -1,0 +1,22 @@
+{
+  "name": "api-gateway",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch index.ts",
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "@elysiajs/bearer": "^0.8.0",
+    "@elysiajs/cors": "^1.2.0",
+    "@elysiajs/jwt": "^0.8.0",
+    "dotenv": "^16.4.1",
+    "elysia": "^0.8.9",
+    "undici": "^7.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "bun-types": "^1.0.25",
+    "typescript": "^5.3.3"
+  }
+}
