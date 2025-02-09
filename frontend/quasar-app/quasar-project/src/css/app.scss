@@ -1,0 +1,56 @@
+// app global css in SCSS form
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+:root {
+  --instagram-blue: #0095f6;
+  --instagram-light-blue: #1877f2;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: #fafafa;
+}
+
+.q-card {
+  background: #ffffff;
+}
+
+// Botón estilo Instagram
+.q-btn--standard {
+  &.q-btn--primary {
+    background: var(--instagram-blue) !important;
+    &:hover {
+      background: var(--instagram-light-blue) !important;
+    }
+  }
+}
+
+// Inputs estilo Instagram
+.q-field--outlined {
+  .q-field__control {
+    background: #fafafa;
+    border-color: #dbdbdb;
+    &:hover {
+      border-color: #a8a8a8;
+    }
+    &:focus-within {
+      border-color: #a8a8a8;
+    }
+  }
+}
+
+// Separador estilo Instagram
+.q-separator {
+  background: #dbdbdb;
+}
+
+// Links estilo Instagram
+.q-btn--flat {
+  &.text-primary {
+    color: var(--instagram-blue) !important;
+    font-weight: 600;
+    &:hover {
+      color: var(--instagram-light-blue) !important;
+    }
+  }
+}
