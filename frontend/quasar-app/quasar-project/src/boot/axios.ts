@@ -7,7 +7,7 @@ declare module '@vue/runtime-core' {
     }
 }
 
-const api = axios.create({ baseURL: 'http://192.168.1.135:3000' }); // API Gateway URL
+const api = axios.create({ baseURL: 'https://rssfeeder.duckdns.org' }); // API Gateway URL
 
 export default boot(({ app }) => {
     app.config.globalProperties.$axios = axios;

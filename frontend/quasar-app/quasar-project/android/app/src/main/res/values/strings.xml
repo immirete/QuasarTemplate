@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CalistenicApp</string>
+    <string name="title_activity_main">CalistenicApp</string>
+    <string name="package_name">com.ivanmm.calistenicapp</string>
+    <string name="custom_url_scheme">com.ivanmm.calistenicapp</string>
+</resources>
