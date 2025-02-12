@@ -8,7 +8,20 @@ const routes: RouteRecordRaw[] = [
     },
     {
         path: '/home',
-        component: () => import('pages/HomePage.vue'),
+    
+          component: () => import('layouts/MainLayout.vue'),
+          
+          children: [
+            { 
+              path: '', 
+              component: () => import('pages/IndexPage.vue') 
+            },
+            {
+              path: '/profile',
+              component: () => import('pages/ProfilePage.vue')
+            }
+          ],
+     
         beforeEnter: (to, from, next) => {
             const authStore = useAuthStore();
             if (authStore.isLoggedIn) {
