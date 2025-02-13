@@ -1,0 +1,22 @@
+{
+  "name": "profile-service",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.744.0",
+    "@aws-sdk/s3-request-presigner": "^3.744.0",
+    "@types/pg": "^8.11.11",
+    "aws-sdk": "^2.1692.0",
+    "dotenv": "^16.4.7",
+    "drizzle-kit": "^0.30.4",
+    "drizzle-orm": "^0.39.3",
+    "elysia": "^1.2.12",
+    "pg": "^8.13.2"
+  }
+}

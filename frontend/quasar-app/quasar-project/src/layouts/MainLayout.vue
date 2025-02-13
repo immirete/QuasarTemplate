@@ -13,7 +13,7 @@
         <q-toolbar-title class="text-primary text-weight-bold">
           Black Photo
         </q-toolbar-title>
-        <q-avatar class="cursor-pointer" @click="$router.push('/profile')">
+        <q-avatar class="cursor-pointer" @click="router.push('/profile')">
           <img :src="userStore.profile.avatar">
           <q-tooltip>Mi Perfil</q-tooltip>
         </q-avatar>
@@ -34,7 +34,7 @@
           exact
         >
           <q-item-section avatar>
-            <q-icon name="home" size="md" :color="$route.path === '/' ? 'primary' : 'grey'" />
+            <q-icon name="home" size="md" :color="route.path === '/' ? 'primary' : 'grey'" />
           </q-item-section>
           <q-item-section>
             <q-item-label class="text-weight-bold">Inicio</q-item-label>
@@ -48,7 +48,7 @@
           exact
         >
           <q-item-section avatar>
-            <q-icon name="person" size="md" :color="$route.path === '/profile' ? 'primary' : 'grey'" />
+            <q-icon name="person" size="md" :color="route.path === '/profile' ? 'primary' : 'grey'" />
           </q-item-section>
           <q-item-section>
             <q-item-label class="text-weight-bold">Perfil</q-item-label>
@@ -106,9 +106,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from 'src/stores/user-store';
 
 const userStore = useUserStore();
+const route = useRoute();
+const router = useRouter();
 const leftDrawerOpen = ref(false);
 </script>
 
