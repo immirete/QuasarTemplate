@@ -2,6 +2,7 @@ import { Elysia } from 'elysia';
 import jwt from '@elysiajs/jwt';
 import bearer from '@elysiajs/bearer';
 import { authRoutes } from './src/routes/authRoutes';
+import { profileRoutes } from "./src/routes/profileRoutes";  
 import * as dotenv from 'dotenv';
 import { cors } from '@elysiajs/cors';
 // import { createProxyMiddleware } from '@elysiajs/http-proxy';
@@ -9,6 +10,7 @@ import { cors } from '@elysiajs/cors';
 dotenv.config();
 
 const app = new Elysia()
+
     .use(cors({
         origin: '*',
         credentials: true,
@@ -23,20 +25,23 @@ const app = new Elysia()
     .all('/*', async ({ request, set }) => {
         const url = new URL(request.url);
         const target = `http://localhost:9000${url.pathname}${url.search}`;
-
+    
+        // Log para asegurarse de que el token está siendo pasado
+        console.log('Authorization Header:', request.headers.get('Authorization'));
+    
         try {
             const response = await fetch(target, {
                 method: request.method,
-                headers: request.headers,
+                headers: request.headers,  // Esto debería estar pasando correctamente el Authorization header
                 body: request.body,
             });
-
+    
             set.status = response.status;
-
+    
             response.headers.forEach((value, key) => {
                 set.headers[key] = value;
             });
-
+    
             return await response.arrayBuffer();
         } catch (error: any) {
             console.error('Proxy error:', error);
@@ -44,7 +49,9 @@ const app = new Elysia()
             return { message: 'Proxy failed', error: error.message };
         }
     })
+    
     .listen(Number(process.env.PORT) || 3000);
+    profileRoutes(app);  // 
 
 console.log(`🦊 API Gateway running at http://${app.server?.hostname}:${app.server?.port}`);
 

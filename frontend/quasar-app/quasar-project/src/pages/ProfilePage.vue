@@ -126,7 +126,7 @@ interface EditedProfile {
 const editedProfile = ref<EditedProfile>({
     email: '',
 });
-const apiUrl = 'https://rssfeeder.duckdns.org'; // URL base del API Gateway
+const apiUrl = 'https://rssfeed.duckdns.org'; // URL base del API Gateway
 
 onMounted(async () => {
   await fetchProfile(); // Cargar perfil al montar la página
