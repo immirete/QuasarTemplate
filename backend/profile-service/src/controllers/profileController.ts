@@ -1,20 +1,32 @@
 import { Elysia, t, type Context } from 'elysia';
 import { profiles, type Profile, type NewProfile } from '../schema';
 import { eq } from 'drizzle-orm';
-import minioClient from '../minioClient';
-import { PutObjectCommand, GetObjectCommand, HeadBucketCommand, CreateBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { drizzle } from 'drizzle-orm/node-postgres';
+import imageService from '../services/imageService';
+import { detectMimeType } from '../utils/fileType';
 
 interface ProfileContext extends Context {
     db: ReturnType<typeof drizzle>;
 }
 
+async function extractFileFromRequest(request: Request): Promise<Buffer> {
+    const contentType = request.headers.get('content-type') || '';
+    if (contentType.includes('multipart/form-data')) {
+        const formData = await request.formData();
+        const file = formData.get('avatar');
+        if (!file || !(file instanceof Blob)) {
+            throw new Error('No file uploaded');
+        }
+        return Buffer.from(await file.arrayBuffer());
+    } else {
+        // Fallback para otros tipos de contenido
+        const arrayBuffer = await request.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+    }
+}
+
 export const profileController = (app: Elysia) => app
     .post('/profile', async ({ body, set, db }: ProfileContext & { body: NewProfile }) => {
-        console.log('Profile Service - POST /profile endpoint hit!');
-        console.log('Request body:', body);
-
         try {
             const newProfileData: NewProfile = body;
             const createdProfile = await db.insert(profiles)
@@ -22,7 +34,6 @@ export const profileController = (app: Elysia) => app
                 .returning();
 
             set.status = 201;
-            console.log('Profile created successfully:', createdProfile[0]);
             return { message: 'Profile created successfully', data: createdProfile[0] };
         } catch (error: any) {
             console.error('Error creating profile:', error);
@@ -81,55 +92,30 @@ export const profileController = (app: Elysia) => app
         console.log('Avatar upload request received for user:', userId);
         try {
             const bucketName = process.env.MINIO_BUCKET_NAME || 'profile-images';
-            console.log('Using bucket:', bucketName);
-
-            // Verificar/Crear bucket
-            try {
-                await minioClient.send(new HeadBucketCommand({ Bucket: bucketName }));
-                console.log('Bucket exists:', bucketName);
-            } catch (error) {
-                console.log('Creating bucket:', bucketName);
-                await minioClient.send(new CreateBucketCommand({ Bucket: bucketName }));
-            }
-
-            // Leer el archivo
-            const arrayBuffer = await request.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
+            
+            // Extraer el archivo
+            const buffer = await extractFileFromRequest(request);
             console.log('File received, size:', buffer.length, 'bytes');
 
-            // Generar nombre único para la imagen
-            const fileName = `${userId}-${Date.now()}.jpeg`;
-            console.log('Image name:', fileName);
-            
-            // Subir a MinIO
-            const uploadCommand = new PutObjectCommand({
-                Bucket: bucketName,
-                Key: fileName,
-                Body: buffer,
-                ContentType: 'image/jpeg',
-            });
+            // Detectar el tipo real del archivo
+            const detectedType = detectMimeType(buffer);
+            console.log('Detected file type:', detectedType);
 
-            console.log('Uploading to MinIO...', {
-                bucket: bucketName,
-                key: fileName,
-                contentType: 'image/jpeg',
-                size: buffer.length
-            });
+            // Generar nombre único para la imagen y subirla
+            const fileName = imageService.generateImageName(userId, detectedType, 'avatar-');
+            console.log('Generated file name:', fileName);
 
-            await minioClient.send(uploadCommand);
-
-            // Verificar que el archivo se subió correctamente
+            // Subir la imagen
             try {
-                const headObjectCommand = new HeadObjectCommand({
-                    Bucket: bucketName,
-                    Key: fileName
-                });
-                await minioClient.send(headObjectCommand);
-                console.log('Upload verified successfully');
-
-                // Generar URL para acceder a través del API Gateway
-                const imageUrl = `http://localhost:3000/minio/profile-images/${fileName}`;
-                console.log('Generated public URL:', imageUrl);
+                const imageUrl = await imageService.uploadImage(
+                    {
+                        buffer,
+                        fileName,
+                        contentType: detectedType
+                    },
+                    bucketName
+                );
+                console.log('Image uploaded successfully:', imageUrl);
 
                 // Actualizar perfil con la nueva URL
                 const updatedProfile = await db.update(profiles)
@@ -143,9 +129,9 @@ export const profileController = (app: Elysia) => app
 
                 set.status = 200;
                 return { message: 'Avatar updated successfully', data: updatedProfile[0] };
-            } catch (error: any) {
-                const errorMessage = error.message || 'Unknown error occurred';
-                throw new Error('Failed to verify file upload: ' + errorMessage);
+            } catch (uploadError) {
+                console.error('Error uploading to MinIO:', uploadError);
+                throw new Error('Failed to upload image to storage');
             }
         } catch (error: any) {
             console.error('Error in avatar upload:', error);
