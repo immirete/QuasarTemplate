@@ -22,26 +22,30 @@ const app = new Elysia()
     }))
     .use(bearer())
     .use(authRoutes)
+    .use(profileRoutes)  // Mover profileRoutes antes del catch-all
     .all('/*', async ({ request, set }) => {
+        // El catch-all route solo para otras rutas no manejadas específicamente
         const url = new URL(request.url);
+        if (url.pathname.startsWith('/auth') || url.pathname.startsWith('/profile')) {
+            set.status = 404;
+            return { message: 'Route not found' };
+        }
+
         const target = `http://localhost:9000${url.pathname}${url.search}`;
-    
-        // Log para asegurarse de que el token está siendo pasado
-        console.log('Authorization Header:', request.headers.get('Authorization'));
-    
+        console.log('Forwarding request to:', target);
+
         try {
             const response = await fetch(target, {
                 method: request.method,
-                headers: request.headers,  // Esto debería estar pasando correctamente el Authorization header
+                headers: request.headers,
                 body: request.body,
             });
-    
+
             set.status = response.status;
-    
             response.headers.forEach((value, key) => {
                 set.headers[key] = value;
             });
-    
+
             return await response.arrayBuffer();
         } catch (error: any) {
             console.error('Proxy error:', error);
@@ -49,9 +53,7 @@ const app = new Elysia()
             return { message: 'Proxy failed', error: error.message };
         }
     })
-    
     .listen(Number(process.env.PORT) || 3000);
-    profileRoutes(app);  // 
 
 console.log(`🦊 API Gateway running at http://${app.server?.hostname}:${app.server?.port}`);
 

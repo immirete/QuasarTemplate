@@ -1,9 +1,48 @@
 import { Elysia } from "elysia";
 
 const PROFILE_SERVICE_URL = process.env.PROFILE_SERVICE_URL || 'http://localhost:3002';
+const MINIO_SERVICE_URL = process.env.MINIO_SERVICE_URL || 'http://localhost:9002';
 
 export const profileRoutes = (app: Elysia) => app
     .group('/profile', (app) => app
+        // Subir avatar
+        .put('/:userId/avatar', async ({ params: { userId }, request, set }) => {
+            try {
+                console.log('Recibiendo petición de subida de avatar');
+                console.log('Content-Type:', request.headers.get('content-type'));
+                
+                const targetUrl = `${PROFILE_SERVICE_URL}/profile/${userId}/avatar`;
+                console.log('Enviando a:', targetUrl);
+
+                // Convertir el ReadableStream a ArrayBuffer para poder enviarlo
+                const arrayBuffer = await new Response(request.body).arrayBuffer();
+
+                const response = await fetch(targetUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': request.headers.get('content-type') || 'multipart/form-data',
+                        'Authorization': request.headers.get('authorization') || '',
+                    },
+                    body: arrayBuffer,
+                });
+
+                console.log('Respuesta del profile-service:', response.status);
+                const responseText = await response.text();
+                console.log('Respuesta completa:', responseText);
+
+                if (!response.ok) {
+                    set.status = response.status;
+                    return { message: 'Error uploading avatar', error: responseText };
+                }
+
+                set.status = 200;
+                return JSON.parse(responseText);
+            } catch (error: any) {
+                console.error('Error uploading avatar:', error);
+                set.status = 500;
+                return { message: 'Failed to upload avatar', error: error.message };
+            }
+        })
         // Obtener perfil de usuario
         .get('/:userId', async ({ params: { userId }, set }) => {
             try {
@@ -12,10 +51,10 @@ export const profileRoutes = (app: Elysia) => app
                     headers: { 'Content-Type': 'application/json' }
                 });
 
-                const textResponse = await response.text(); // 📌 Leer la respuesta como texto primero
-                console.log('📩 Respuesta de profile-service:', textResponse); // Ver qué está recibiendo
+                const textResponse = await response.text();
+                console.log('📩 Respuesta de profile-service:', textResponse);
 
-                const data = JSON.parse(textResponse); // Convertir manualmente a JSON
+                const data = JSON.parse(textResponse);
                 set.status = response.ok ? 200 : response.status;
                 return data;
             } catch (error: any) {
@@ -37,12 +76,10 @@ export const profileRoutes = (app: Elysia) => app
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': request.headers.get('authorization') || '', // 🔹 Pasamos el token
+                        'Authorization': request.headers.get('authorization') || '',
                     },
                     body: JSON.stringify(body),
                 });
-
-                console.log('📩 Respuesta del profile-service:', response.status, await response.text());
 
                 if (!response.ok) {
                     set.status = response.status;
@@ -57,24 +94,34 @@ export const profileRoutes = (app: Elysia) => app
                 return { message: 'Error al conectar con profile service', error: error.message };
             }
         })
+    )
+    // Ruta para servir imágenes de MinIO
+    .get('/minio/profile-images/:imageId', async ({ params: { imageId }, set }) => {
+        try {
+            const minioUrl = `${MINIO_SERVICE_URL}/profile-images/${imageId}`;
+            console.log('Accessing MinIO URL:', minioUrl);
 
-        // Obtener imagen de perfil
-        .get('/:userId/image', async ({ params: { userId }, set }) => {
-            try {
-                const response = await fetch(`${PROFILE_SERVICE_URL}/profile/${userId}/image`);
-
-                if (!response.ok) {
-                    set.status = response.status;
-                    return { message: 'Error fetching profile image' };
+            const minioCredentials = Buffer.from('Usuario1:Usuario1').toString('base64');
+            const response = await fetch(minioUrl, {
+                headers: {
+                    'Authorization': `Basic ${minioCredentials}`,
+                    'Host': new URL(MINIO_SERVICE_URL).host
                 }
-
-                set.status = 200;
-                set.headers['Content-Type'] = response.headers.get('content-type') || 'image/jpeg';
-                return response.body;
-            } catch (error: any) {
-                console.error('Error fetching profile image:', error);
-                set.status = 500;
-                return { message: 'Failed to fetch profile image', error: error.message };
+            });
+            
+            if (!response.ok) {
+                console.error('MinIO error:', response.status);
+                set.status = response.status;
+                return new Response(null, { status: response.status });
             }
-        })
-    );
+
+            const buffer = await response.arrayBuffer();
+            set.headers['Content-Type'] = response.headers.get('content-type') || 'image/jpeg';
+            set.headers['Cache-Control'] = 'public, max-age=31536000';
+            return new Uint8Array(buffer);
+        } catch (error) {
+            console.error('Error serving image:', error);
+            set.status = 500;
+            return { message: 'Error serving image' };
+        }
+    });

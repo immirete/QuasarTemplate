@@ -7,23 +7,21 @@
             <div class="text-center q-mb-md">
               <q-avatar size="150px">
                 <img :src="editedProfile.avatarUrl || 'https://cdn.quasar.dev/img/avatar3.svg'">
-                <q-uploader
-                  v-if="editing"
-                  label="Cambiar Avatar"
-                  style="position: absolute; bottom: 0; right: 0; opacity: 0; width: 100%; height: 30%; cursor: pointer;"
-                  @upload="uploadAvatar"
-                  accept="image/*"
-                  max-files="1"
-                  auto-upload
-                  :headers="[
-                    {
-                      name: 'Authorization',
-                      value: `Bearer ${authStore.token}`
-                    }
-                  ]"
-                  :url="`${apiUrl}/profile/${authStore.userId}/image`"
-                />
               </q-avatar>
+              <q-btn
+                color="primary"
+                label="Cambiar Avatar"
+                class="q-mt-sm full-width"
+                @click="selectAvatar"
+                :loading="isUploading"
+              />
+              <input
+                type="file"
+                id="avatarInput"
+                accept="image/*"
+                style="display: none"
+                @change="handleAvatarUpload"
+              />
             </div>
 
             <div v-if="!editing" class="text-center">
@@ -63,7 +61,6 @@
                   val => /^[^@]+@[^@]+\.[^@]+$/.test(val) || 'Email inválido'
                 ]"
               />
-
               <q-input
                 v-model="editedProfile.bio"
                 label="Bio"
@@ -115,56 +112,56 @@ const $q = useQuasar();
 
 const editing = ref(false);
 const isSaving = ref(false);
+const isUploading = ref(false);
+
+interface ApiResponse<T> {
+  message: string;
+  data: T;
+}
+
 interface EditedProfile {
-    firstName?: string;
-    lastName?: string;
-    email: string;
-    bio?: string;
-    avatarUrl?: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  bio?: string;
+  avatarUrl?: string;
 }
 
 const editedProfile = ref<EditedProfile>({
-    email: '',
+  email: '',
 });
-const apiUrl = 'https://rssfeed.duckdns.org'; // URL base del API Gateway
 
 onMounted(async () => {
-  await fetchProfile(); // Cargar perfil al montar la página
+  await fetchProfile();
 });
+
 const fetchProfile = async () => {
-    if (!authStore.userId) {
-        $q.notify({
-            color: 'negative',
-            message: 'No hay sesión de usuario activa',
-            icon: 'error'
-        });
-        router.push('/login');
-        return;
+  if (!authStore.userId) {
+    $q.notify({
+      color: 'negative',
+      message: 'No hay sesión de usuario activa',
+      icon: 'error'
+    });
+    router.push('/login');
+    return;
+  }
+
+  try {
+    const response = await api.get<ApiResponse<EditedProfile>>(`/profile/${authStore.userId}`);
+    editedProfile.value = response.data.data;
+  } catch (error: any) {
+    console.error('Error fetching profile:', error);
+    $q.notify({
+      color: 'negative',
+      message: error.response?.data?.message || 'Error al cargar el perfil',
+      icon: 'error'
+    });
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      router.push('/login');
     }
-
-    try {
-        const response = await api.get<EditedProfile>(`${apiUrl}/profile/${authStore.userId}`, {
-            headers: {
-                Authorization: `Bearer ${authStore.token}`
-            }
-        });
-
-        editedProfile.value = response.data;
-    } catch (error: any) {
-        console.error('Error fetching profile:', error);
-        $q.notify({
-            color: 'negative',
-            message: error.response?.data?.message || 'Error al cargar el perfil',
-            icon: 'error'
-        });
-
-        if (error.response?.status === 401 || error.response?.status === 403) {
-            router.push('/login');
-        }
-    }
+  }
 };
-
-
 
 const logout = async () => {
   await authStore.logout();
@@ -202,11 +199,33 @@ const saveProfileData = async () => {
   }
 };
 
-const uploadAvatar = async (files: File[]) => {
+const selectAvatar = () => {
+  document.getElementById('avatarInput')?.click();
+};
+
+const handleAvatarUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const files = target.files;
+
   if (!files || files.length === 0) return;
+
   const file = files[0];
+  isUploading.value = true;
 
   try {
+    const formData = new FormData();
+    formData.append('avatar', file, file.name);
+
+    console.log('Uploading avatar...', {
+      userId: authStore.userId,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size
+    });
+
+    const response = await api.put(`/profile/${authStore.userId}/avatar`, formData);
+    console.log('Upload response:', response.data);
+    
     await fetchProfile();
     $q.notify({
       type: 'positive',
@@ -217,12 +236,13 @@ const uploadAvatar = async (files: File[]) => {
     console.error('Error uploading avatar:', error);
     $q.notify({
       type: 'negative',
-      message: 'Error al actualizar el avatar',
+      message: error.response?.data?.message || 'Error al actualizar el avatar',
       icon: 'error'
     });
+  } finally {
+    isUploading.value = false;
   }
 };
-
 </script>
 
 <style lang="scss" scoped>
