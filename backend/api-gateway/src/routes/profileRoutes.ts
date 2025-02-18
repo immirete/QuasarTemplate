@@ -1,72 +1,50 @@
 import { Elysia } from "elysia";
 
 const PROFILE_SERVICE_URL = process.env.PROFILE_SERVICE_URL || 'http://localhost:3002';
-const MINIO_SERVICE_URL = process.env.MINIO_SERVICE_URL || 'http://localhost:9002';
+const IMAGE_SERVICE_URL = process.env.IMAGE_SERVICE_URL || 'http://localhost:3003';
 
 export const profileRoutes = (app: Elysia) => app
-    // Ruta para servir imágenes de MinIO
-    .get('/api/v1/profile/images/:imageId', async ({ params: { imageId }, set }) => {
+    // Ruta para servir imágenes (redirección al image-service)
+    .get('/api/v1/profile/images/:bucket/:imageId', async ({ params: { bucket, imageId }, set }) => {
         try {
-            const minioUrl = `${MINIO_SERVICE_URL}/profile-images/${imageId}`;
-            console.log('Accessing MinIO URL:', minioUrl);
+            const imageUrl = `${IMAGE_SERVICE_URL}/${bucket}/${imageId}`;
+            console.log('🔄 Redirigiendo a image-service:', imageUrl);
 
-            const response = await fetch(minioUrl);
+            const response = await fetch(imageUrl);
             
             if (!response.ok) {
-                console.error('MinIO error:', response.status);
-                const errorText = await response.text();
-                console.error('MinIO error details:', errorText);
+                console.error('❌ Image service error:', response.status);
                 set.status = response.status;
                 return { message: 'Error accessing image' };
             }
 
-            // Configurar los headers exactamente como los envía MinIO
-            const contentType = response.headers.get('content-type');
-            const contentLength = response.headers.get('content-length');
-            const etag = response.headers.get('etag');
-            const lastModified = response.headers.get('last-modified');
+            // Copiar todos los headers relevantes
+            for (const [key, value] of response.headers) {
+                set.headers[key] = value;
+            }
 
-            if (contentType) set.headers['Content-Type'] = contentType;
-            if (contentLength) set.headers['Content-Length'] = contentLength;
-            if (etag) set.headers['ETag'] = etag;
-            if (lastModified) set.headers['Last-Modified'] = lastModified;
-
-            set.headers['Cache-Control'] = 'public, max-age=31536000';
-            set.headers['Access-Control-Allow-Origin'] = '*';
-
-            // Servir la imagen directamente como buffer
+            // Devolver la imagen
             const buffer = await response.arrayBuffer();
             return new Uint8Array(buffer);
         } catch (error) {
-            console.error('Error serving image:', error);
+            console.error('❌ Error accessing image service:', error);
             set.status = 500;
             return { message: 'Error serving image' };
         }
     })
 
     .group('/profile', (app) => app
-        // Subir avatar
+        // Subir avatar (redirección al image-service)
         .put('/:userId/avatar', async ({ params: { userId }, request, set }) => {
             try {
-                console.log('Recibiendo petición de subida de avatar');
-                const contentType = request.headers.get('content-type');
-                console.log('Content-Type:', contentType);
+                console.log('📤 Recibiendo petición de subida de avatar');
                 
-                const targetUrl = `${PROFILE_SERVICE_URL}/profile/${userId}/avatar`;
-                console.log('Enviando a:', targetUrl);
+                const targetUrl = `${IMAGE_SERVICE_URL}/upload/profile-images/${userId}`;
+                console.log('🔄 Redirigiendo a:', targetUrl);
 
                 // Reenviar el FormData manteniendo su estructura
                 const formData = await request.formData();
                 
-                // Debug: verificar el contenido del FormData
-                console.log('FormData entries:');
-                for (const [key, value] of formData.entries()) {
-                    console.log(`Key: ${key}, Value type: ${value instanceof Blob ? 'Blob' : typeof value}`);
-                    if (value instanceof Blob) {
-                        console.log(`Blob size: ${value.size} bytes`);
-                    }
-                }
-
                 const response = await fetch(targetUrl, {
                     method: 'PUT',
                     headers: {
@@ -75,39 +53,56 @@ export const profileRoutes = (app: Elysia) => app
                     body: formData,
                 });
 
-                console.log('Respuesta del profile-service:', response.status);
+                console.log('📥 Respuesta del image-service:', response.status);
                 const responseText = await response.text();
-                console.log('Respuesta completa:', responseText);
 
                 if (!response.ok) {
                     set.status = response.status;
                     return { message: 'Error uploading avatar', error: responseText };
                 }
 
-                set.status = 200;
+                set.status = 201;
                 return JSON.parse(responseText);
             } catch (error: any) {
-                console.error('Error uploading avatar:', error);
+                console.error('❌ Error uploading avatar:', error);
                 set.status = 500;
                 return { message: 'Failed to upload avatar', error: error.message };
             }
         })
+
         // Obtener perfil de usuario
-        .get('/:userId', async ({ params: { userId }, set }) => {
+        .get('/:userId', async ({ params: { userId }, set, request }) => {
             try {
-                const response = await fetch(`${PROFILE_SERVICE_URL}/profile/${userId}`, {
+                // Agrega logging para debug
+                console.log('🔍 Intentando obtener perfil para userId:', userId);
+                
+                // Asegúrate de que la URL se construye correctamente
+                const profileUrl = `${PROFILE_SERVICE_URL}/profile/${userId}`;
+                console.log('🌐 URL del servicio:', profileUrl);
+
+                const response = await fetch(profileUrl, {
                     method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        // Agrega el token de autorización si es necesario
+                        'Authorization': request.headers.get('authorization') || ''
+                    }
                 });
 
-                const textResponse = await response.text();
-                console.log('📩 Respuesta de profile-service:', textResponse);
+                // Agrega más logging
+                console.log('📥 Status code:', response.status);
+                
+                if (!response.ok) {
+                    console.error('❌ Error response:', await response.text());
+                    set.status = response.status;
+                    return { message: 'Profile not found', status: response.status };
+                }
 
-                const data = JSON.parse(textResponse);
-                set.status = response.ok ? 200 : response.status;
+                const data = await response.json();
+                console.log('✅ Datos recibidos:', data);
                 return data;
             } catch (error: any) {
-                console.error('Error fetching profile:', error);
+                console.error('❌ Error fetching profile:', error);
                 set.status = 500;
                 return { message: 'Failed to fetch profile', error: error.message };
             }

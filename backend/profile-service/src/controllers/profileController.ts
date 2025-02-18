@@ -1,28 +1,22 @@
-import { Elysia, t, type Context } from 'elysia';
-import { profiles, type Profile, type NewProfile } from '../schema';
+import { Elysia, t } from 'elysia';
+import type { Context } from 'elysia';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import imageService from '../services/imageService';
-import { detectMimeType } from '../utils/fileType';
+import { profiles } from '../schema';
+
+const IMAGE_SERVICE_URL = process.env.IMAGE_SERVICE_URL || 'http://localhost:3003';
 
 interface ProfileContext extends Context {
     db: ReturnType<typeof drizzle>;
 }
 
-async function extractFileFromRequest(request: Request): Promise<Buffer> {
-    const contentType = request.headers.get('content-type') || '';
-    if (contentType.includes('multipart/form-data')) {
-        const formData = await request.formData();
-        const file = formData.get('avatar');
-        if (!file || !(file instanceof Blob)) {
-            throw new Error('No file uploaded');
-        }
-        return Buffer.from(await file.arrayBuffer());
-    } else {
-        // Fallback para otros tipos de contenido
-        const arrayBuffer = await request.arrayBuffer();
-        return Buffer.from(arrayBuffer);
-    }
+interface NewProfile {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    bio?: string;
+    avatarUrl?: string;
 }
 
 export const profileController = (app: Elysia) => app
@@ -35,32 +29,74 @@ export const profileController = (app: Elysia) => app
 
             set.status = 201;
             return { message: 'Profile created successfully', data: createdProfile[0] };
-        } catch (error: any) {
+        } catch (error) {
             console.error('Error creating profile:', error);
             set.status = 500;
-            return { message: 'Failed to create profile', error: error.message };
+            return { message: 'Failed to create profile' };
         }
-    }, {
-        body: t.Object({
-            userId: t.String(),
-            email: t.Optional(t.String()),
-        }),
     })
-    .get('/profile/:userId', async ({ params: { userId }, set, db }: ProfileContext) => {
+
+    // Subir avatar
+    .put('/profile/:userId/avatar', async ({ params: { userId }, request, set, db }: ProfileContext & { params: { userId: string } }) => {
         try {
-            const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId));
-            if (!profile) {
+            // Enviar la imagen al image-service
+            const formData = await request.formData();
+            const file = formData.get('avatar');
+            if (!file || !(file instanceof Blob)) {
+                set.status = 400;
+                return { message: 'No avatar file provided' };
+            }
+
+            // Construir la URL del image-service
+            const imageServiceUrl = `${IMAGE_SERVICE_URL}/upload/profile-images/${userId}`;
+
+            // Enviar el archivo al image-service
+            const imageResponse = await fetch(imageServiceUrl, {
+                method: 'PUT',
+                body: formData
+            });
+
+            if (!imageResponse.ok) {
+                throw new Error('Failed to upload image to image service');
+            }
+
+            const imageResult = await imageResponse.json();
+
+            // Actualizar el perfil con la nueva URL del avatar
+            await db.update(profiles)
+                .set({ avatarUrl: imageResult.url })
+                .where(eq(profiles.userId, userId));
+
+            set.status = 200;
+            return { message: 'Avatar updated successfully', avatarUrl: imageResult.url };
+        } catch (error: any) {
+            console.error('Error updating avatar:', error);
+            set.status = 500;
+            return { message: 'Failed to update avatar', error: error.message };
+        }
+    })
+
+    .get('/profile/:userId', async ({ params: { userId }, set, db }: ProfileContext & { params: { userId: string } }) => {
+        try {
+            const profile = await db.select()
+                .from(profiles)
+                .where(eq(profiles.userId, userId))
+                .limit(1);
+
+            if (profile.length === 0) {
                 set.status = 404;
                 return { message: 'Profile not found' };
             }
-            return { message: 'Profile retrieved successfully', data: profile };
-        } catch (error: any) {
-            console.error('Error getting profile:', error);
+
+            return { message: 'Profile retrieved successfully', data: profile[0] };
+        } catch (error) {
+            console.error('Error fetching profile:', error);
             set.status = 500;
-            return { message: 'Failed to get profile', error: error.message };
+            return { message: 'Failed to fetch profile' };
         }
     })
-    .put('/profile/:userId', async ({ params: { userId }, body, set, db }: ProfileContext & { body: any }) => {
+
+    .put('/profile/:userId', async ({ params: { userId }, body, set, db }: ProfileContext & { params: { userId: string }, body: Partial<NewProfile> }) => {
         try {
             const updatedProfile = await db.update(profiles)
                 .set(body)
@@ -69,10 +105,9 @@ export const profileController = (app: Elysia) => app
 
             if (updatedProfile.length === 0) {
                 set.status = 404;
-                return { message: 'Profile not found or not updated' };
+                return { message: 'Profile not found' };
             }
 
-            set.status = 200;
             return { message: 'Profile updated successfully', data: updatedProfile[0] };
         } catch (error: any) {
             console.error('Error updating profile:', error);
@@ -88,54 +123,5 @@ export const profileController = (app: Elysia) => app
         }),
     })
     
-    .put('/profile/:userId/avatar', async ({ params: { userId }, set, db, request }: ProfileContext) => {
-        console.log('Avatar upload request received for user:', userId);
-        try {
-            const bucketName = process.env.MINIO_BUCKET_NAME || 'profile-images';
-            
-            // Extraer el archivo
-            const buffer = await extractFileFromRequest(request);
-            console.log('File received, size:', buffer.length, 'bytes');
-
-            // Detectar el tipo real del archivo
-            const detectedType = detectMimeType(buffer);
-            console.log('Detected file type:', detectedType);
-
-            // Generar nombre único para la imagen y subirla
-            const fileName = imageService.generateImageName(userId, detectedType, 'avatar-');
-            console.log('Generated file name:', fileName);
-
-            // Subir la imagen
-            try {
-                const imageUrl = await imageService.uploadImage(
-                    {
-                        buffer,
-                        fileName,
-                        contentType: detectedType
-                    },
-                    bucketName
-                );
-                console.log('Image uploaded successfully:', imageUrl);
-
-                // Actualizar perfil con la nueva URL
-                const updatedProfile = await db.update(profiles)
-                    .set({ avatarUrl: imageUrl })
-                    .where(eq(profiles.userId, userId))
-                    .returning();
-
-                if (updatedProfile.length === 0) {
-                    throw new Error('Profile not found or not updated');
-                }
-
-                set.status = 200;
-                return { message: 'Avatar updated successfully', data: updatedProfile[0] };
-            } catch (uploadError) {
-                console.error('Error uploading to MinIO:', uploadError);
-                throw new Error('Failed to upload image to storage');
-            }
-        } catch (error: any) {
-            console.error('Error in avatar upload:', error);
-            set.status = 500;
-            return { message: 'Failed to upload avatar', error: error.message };
-        }
-    });
+   
+    ;

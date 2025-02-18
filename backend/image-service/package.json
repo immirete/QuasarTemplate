@@ -1,0 +1,19 @@
+{
+  "name": "image-service",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "undici": "^7.3.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.744.0",
+    "@aws-sdk/s3-request-presigner": "^3.744.0",
+    "@types/node": "^22.13.4",
+    "dotenv": "^16.4.7",
+    "elysia": "^1.2.12"
+  }
+}

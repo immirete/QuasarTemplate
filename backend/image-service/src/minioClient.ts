@@ -1,4 +1,4 @@
-// backend/profile-service/src/minioClient.ts
+// backend/image-service/src/minioClient.ts
 import { S3Client } from "@aws-sdk/client-s3";
 import * as dotenv from 'dotenv';
 
@@ -37,9 +37,10 @@ const minioClient = new S3Client({
     // Configuración adicional para asegurar que funcione correctamente
     requestHandler: {
         abortSignal: undefined,
-        connectionTimeout: 5000,
-        socketTimeout: 5000
-    }
+        connectionTimeout: 30000, // Aumentar a 30 segundos
+        socketTimeout: 30000     // Aumentar a 30 segundos
+    },
+    maxAttempts: 3 // Añadir reintentos
 });
 
 // Log de inicialización exitosa

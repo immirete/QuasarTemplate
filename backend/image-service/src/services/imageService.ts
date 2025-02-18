@@ -1,6 +1,6 @@
-import { PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import minioClient from '../minioClient';
-import { resetAndSetupBucket } from '../utils/setupBucket';
+import { setupBucket } from '../utils/setupBucket';
 import { detectMimeType, getFileExtension, isImageMimeType } from '../utils/fileType';
 
 interface UploadImageOptions {
@@ -29,7 +29,7 @@ export class ImageService {
         if (!this.initialized) {
             try {
                 console.log('Initializing image service and setting up bucket...');
-                await resetAndSetupBucket(bucketName);
+                await setupBucket(bucketName);
                 this.initialized = true;
                 console.log('Image service initialized successfully');
             } catch (error) {
@@ -67,13 +67,30 @@ export class ImageService {
             await minioClient.send(uploadCommand);
             console.log('File uploaded successfully');
 
-            // Devolver la URL pública
-            const imageUrl = `${this.endpoint}/${bucketName}/${options.fileName}`;
-            console.log('Generated public URL:', imageUrl);
+            // Devolver la URL
+            // Construir URL relativa al image-service en lugar de MinIO directo
+            const imageServiceUrl = process.env.IMAGE_SERVICE_URL || 'http://localhost:3003';
+            const imageUrl = `${imageServiceUrl}/${bucketName}/${options.fileName}`;
+            console.log('Generated URL:', imageUrl);
             return imageUrl;
         } catch (error) {
             console.error('Error uploading file to MinIO:', error);
             throw new Error('Failed to upload file to storage');
+        }
+    }
+
+    public async deleteImage(bucketName: string, fileName: string): Promise<void> {
+        try {
+            const deleteCommand = new DeleteObjectCommand({
+                Bucket: bucketName,
+                Key: fileName,
+            });
+
+            await minioClient.send(deleteCommand);
+            console.log(`File ${fileName} deleted successfully`);
+        } catch (error) {
+            console.error('Error deleting file from MinIO:', error);
+            throw new Error('Failed to delete file from storage');
         }
     }
 
