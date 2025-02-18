@@ -36,44 +36,37 @@ export const profileController = (app: Elysia) => app
         }
     })
 
-    // Subir avatar
-    .put('/profile/:userId/avatar', async ({ params: { userId }, request, set, db }: ProfileContext & { params: { userId: string } }) => {
+    // Endpoint para actualizar solo la URL del avatar
+    .put('/profile/:userId/avatar-url', async ({ params: { userId }, body, set, db }: ProfileContext & { params: { userId: string }, body: { avatarUrl: string } }) => {
         try {
-            // Enviar la imagen al image-service
-            const formData = await request.formData();
-            const file = formData.get('avatar');
-            if (!file || !(file instanceof Blob)) {
-                set.status = 400;
-                return { message: 'No avatar file provided' };
+            console.log('📝 Actualizando URL del avatar para usuario:', userId);
+            console.log('🔗 Nueva URL:', body.avatarUrl);
+
+            const updatedProfile = await db.update(profiles)
+                .set({ avatarUrl: body.avatarUrl })
+                .where(eq(profiles.userId, userId))
+                .returning();
+
+            if (updatedProfile.length === 0) {
+                console.error('❌ Perfil no encontrado para userId:', userId);
+                set.status = 404;
+                return { message: 'Profile not found' };
             }
 
-            // Construir la URL del image-service
-            const imageServiceUrl = `${IMAGE_SERVICE_URL}/upload/profile-images/${userId}`;
-
-            // Enviar el archivo al image-service
-            const imageResponse = await fetch(imageServiceUrl, {
-                method: 'PUT',
-                body: formData
-            });
-
-            if (!imageResponse.ok) {
-                throw new Error('Failed to upload image to image service');
-            }
-
-            const imageResult = await imageResponse.json();
-
-            // Actualizar el perfil con la nueva URL del avatar
-            await db.update(profiles)
-                .set({ avatarUrl: imageResult.url })
-                .where(eq(profiles.userId, userId));
-
-            set.status = 200;
-            return { message: 'Avatar updated successfully', avatarUrl: imageResult.url };
+            console.log('✅ Avatar URL actualizada con éxito');
+            return { 
+                message: 'Avatar URL updated successfully', 
+                data: { avatarUrl: updatedProfile[0].avatarUrl }
+            };
         } catch (error: any) {
-            console.error('Error updating avatar:', error);
+            console.error('❌ Error actualizando avatar URL:', error);
             set.status = 500;
-            return { message: 'Failed to update avatar', error: error.message };
+            return { message: 'Failed to update avatar URL', error: error.message };
         }
+    }, {
+        body: t.Object({
+            avatarUrl: t.String()
+        })
     })
 
     .get('/profile/:userId', async ({ params: { userId }, set, db }: ProfileContext & { params: { userId: string } }) => {
@@ -120,8 +113,6 @@ export const profileController = (app: Elysia) => app
             lastName: t.Optional(t.String()),
             email: t.Optional(t.String()),
             bio: t.Optional(t.String()),
-        }),
-    })
-    
-   
-    ;
+            avatarUrl: t.Optional(t.String()),
+        })
+    });

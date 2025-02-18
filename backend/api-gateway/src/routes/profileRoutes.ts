@@ -39,10 +39,11 @@ export const profileRoutes = (app: Elysia) => app
             try {
                 console.log('📤 Recibiendo petición de subida de avatar');
                 
+                // URL para subir la imagen al Image Service
                 const targetUrl = `${IMAGE_SERVICE_URL}/upload/profile-images/${userId}`;
                 console.log('🔄 Redirigiendo a:', targetUrl);
-
-                // Reenviar el FormData manteniendo su estructura
+        
+                // Obtener el FormData (la imagen) y reenviarlo al Image Service
                 const formData = await request.formData();
                 
                 const response = await fetch(targetUrl, {
@@ -52,24 +53,72 @@ export const profileRoutes = (app: Elysia) => app
                     },
                     body: formData,
                 });
-
+        
                 console.log('📥 Respuesta del image-service:', response.status);
                 const responseText = await response.text();
-
+        
                 if (!response.ok) {
                     set.status = response.status;
                     return { message: 'Error uploading avatar', error: responseText };
                 }
+        
+                // Imprimir la respuesta completa para ver su estructura
+                console.log('🔍 Respuesta completa del image-service:', responseText);
+        
+                const responseData = JSON.parse(responseText);
+        
+                // Verificar si "url" existe en la respuesta del image-service
+                if (!responseData.url) {
+                    console.error('❌ No se encontró "url" en la respuesta del image-service');
+                    set.status = 500;
+                    return { message: 'Image service did not return URL' };
+                }
+        
+                // Obtener la URL del avatar desde la respuesta del Image Service
+                const avatarUrl = responseData.url;  // URL de la imagen subida
+                console.log('✅ Avatar subido:', avatarUrl);
 
-                set.status = 201;
-                return JSON.parse(responseText);
+                // Actualizar el perfil con la nueva URL del avatar
+                const profileServiceUrl = `${PROFILE_SERVICE_URL}/profile/${userId}/avatar-url`;
+                console.log('🔄 Actualizando perfil con nueva URL:', avatarUrl);
+
+                const updatedProfileResponse = await fetch(profileServiceUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': request.headers.get('authorization') || '',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ avatarUrl }),
+                });
+
+                if (!updatedProfileResponse.ok) {
+                    const errorText = await updatedProfileResponse.text();
+                    console.error('❌ Error actualizando perfil:', errorText);
+                    throw new Error(`Error actualizando perfil: ${errorText}`);
+                }
+
+                const profileUpdateResult = await updatedProfileResponse.json();
+                console.log('✅ Perfil actualizado:', profileUpdateResult);
+        
+                if (!updatedProfileResponse.ok) {
+                    const errorText = await updatedProfileResponse.text();
+                    console.error('❌ Error updating profile:', errorText);
+                    set.status = updatedProfileResponse.status;
+                    return { message: 'Error updating profile', error: errorText };
+                }
+        
+                // Si todo fue exitoso
+                set.status = 200;
+                return { message: 'Avatar updated successfully', avatarUrl };
+        
             } catch (error: any) {
                 console.error('❌ Error uploading avatar:', error);
                 set.status = 500;
-                return { message: 'Failed to upload avatar', error: error.message };
+                return { message: 'Failed to update avatar', error: error.message };
             }
         })
-
+        
+        
         // Obtener perfil de usuario
         .get('/:userId', async ({ params: { userId }, set, request }) => {
             try {

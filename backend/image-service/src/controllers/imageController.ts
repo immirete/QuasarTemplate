@@ -62,7 +62,7 @@ export const imageController = (app: Elysia) => app
     // Servir imagen
     .get('/:bucket/:imageId', async ({ params: { bucket, imageId }, set }) => {
         try {
-            const minioUrl = `${process.env.MINIO_ENDPOINT || 'http://localhost:9002'}/${bucket}/${imageId}`;
+            const minioUrl = `${ 'http://localhost:9002'}/${bucket}/${imageId}`;
             console.log('Accediendo a MinIO URL:', minioUrl);
 
             const response = await fetch(minioUrl);
@@ -97,14 +97,24 @@ export const imageController = (app: Elysia) => app
     })
 
     // Eliminar imagen
-    .delete('/:bucket/:imageId', async ({ params: { bucket, imageId }, set }) => {
-        try {
-            await imageService.deleteImage(bucket, imageId);
-            set.status = 200;
-            return { message: 'Image deleted successfully' };
-        } catch (error: any) {
-            console.error('Error deleting image:', error);
-            set.status = 500;
-            return { message: 'Failed to delete image', error: error.message };
+  // Eliminar imagen en image-service
+    .delete('/delete/profile-images/:filename', async ({ params: { filename }, set }) => {
+    try {
+        console.log('🗑 Eliminando imagen:', filename);
+        const minioDeleteUrl =  `${'http://localhost:9002/profile-images/'}/${filename}`;
+        
+        const deleteResponse = await fetch(minioDeleteUrl, { method: 'DELETE' });
+
+        if (!deleteResponse.ok) {
+            set.status = deleteResponse.status;
+            return { message: 'Error deleting image' };
         }
-    });
+
+        set.status = 200;
+        return { message: 'Image deleted successfully' };
+    } catch (error) {
+        console.error('❌ Error deleting image:', error);
+        set.status = 500;
+        return { message: 'Failed to delete image', error: error };
+    }
+});
