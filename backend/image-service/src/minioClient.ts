@@ -1,11 +1,10 @@
-// backend/image-service/src/minioClient.ts
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
 import * as dotenv from 'dotenv';
 
-// Cargar variables de entorno desde el directorio actual
+// Cargar variables de entorno
 dotenv.config();
 
-// Configuración de MinIO
+// Obtener configuración del .env
 const MINIO_CONFIG = {
     endpoint: process.env.MINIO_ENDPOINT || 'http://localhost:9002',
     region: 'us-east-1',
@@ -13,12 +12,11 @@ const MINIO_CONFIG = {
         accessKeyId: process.env.MINIO_ROOT_USER || 'Usuario1',
         secretAccessKey: process.env.MINIO_ROOT_PASSWORD || 'Usuario1',
     },
-    forcePathStyle: true,
-    signatureVersion: 'v4'
+    forcePathStyle: true
 };
 
-// Log de configuración (sin mostrar secretos)
-console.log('MinIO Configuration:', {
+// Log de configuración (sin secretos)
+console.log('📦 MinIO Configuration:', {
     endpoint: MINIO_CONFIG.endpoint,
     region: MINIO_CONFIG.region,
     credentials: {
@@ -27,24 +25,48 @@ console.log('MinIO Configuration:', {
     }
 });
 
-// Crear cliente S3
+// Crear cliente S3 con configuración mejorada
 const minioClient = new S3Client({
     ...MINIO_CONFIG,
-    region: MINIO_CONFIG.region,
-    credentials: MINIO_CONFIG.credentials,
-    endpoint: MINIO_CONFIG.endpoint,
     forcePathStyle: true,
-    // Configuración adicional para asegurar que funcione correctamente
     requestHandler: {
         abortSignal: undefined,
-        connectionTimeout: 30000, // Aumentar a 30 segundos
-        socketTimeout: 30000     // Aumentar a 30 segundos
-    },
-    maxAttempts: 3 // Añadir reintentos
+        connectionTimeout: 30000,
+        socketTimeout: 30000,
+        keepAlive: true,
+        maxSockets: 50,
+    }
 });
 
 // Log de inicialización exitosa
-console.log('MinIO client initialized successfully');
+console.log('✅ MinIO client initialized');
 
-// Exportar cliente
-export default minioClient;
+// Función para verificar la conectividad
+const testMinioConnection = async () => {
+    try {
+        // Intentar listar buckets como prueba de conexión
+        const command = new ListBucketsCommand({});
+        const response = await minioClient.send(command);
+        
+        console.log('🔗 MinIO connection test successful:', {
+            buckets: response.Buckets?.length || 0,
+            owner: response.Owner?.DisplayName
+        });
+        return true;
+    } catch (error) {
+        console.error('❌ MinIO connection test failed:', {
+            error: error instanceof Error ? error.message : String(error),
+            config: {
+                endpoint: MINIO_CONFIG.endpoint,
+                region: MINIO_CONFIG.region
+            }
+        });
+        return false;
+    }
+};
+
+// Ejecutar prueba de conexión al iniciar
+testMinioConnection().catch(console.error);
+
+// Exportar cliente y función de prueba
+export { minioClient as default, testMinioConnection };

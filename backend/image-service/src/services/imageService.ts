@@ -1,105 +1,126 @@
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import minioClient from '../minioClient';
-import { setupBucket } from '../utils/setupBucket';
-import { detectMimeType, getFileExtension, isImageMimeType } from '../utils/fileType';
+import { detectMimeType, getFileExtension } from '../utils/fileType';
+import { StorageProvider, StorageFactory, StorageConfig } from '../storage/StorageProvider';
 
-interface UploadImageOptions {
+interface UploadOptions {
     buffer: Buffer;
     fileName: string;
-    contentType?: string;
+    contentType: string;
 }
 
-export class ImageService {
-    private static instance: ImageService;
-    private readonly endpoint: string;
-    private initialized: boolean = false;
+class ImageService {
+    private storageProvider?: StorageProvider;
+    private config: StorageConfig;
 
-    private constructor() {
-        this.endpoint = process.env.MINIO_ENDPOINT || 'http://localhost:9002';
+    constructor() {
+        this.config = {
+            endpoint: process.env.MINIO_ENDPOINT || 'http://localhost:9002',
+            region: 'us-east-1',
+            credentials: {
+                accessKey: process.env.MINIO_ROOT_USER || 'Usuario1',
+                secretKey: process.env.MINIO_ROOT_PASSWORD || 'Usuario1',
+            },
+            publicUrlBase: process.env.IMAGE_SERVICE_URL || 'http://localhost:3003'
+        };
     }
 
-    public static getInstance(): ImageService {
-        if (!ImageService.instance) {
-            ImageService.instance = new ImageService();
+    private async ensureProvider(): Promise<StorageProvider> {
+        if (!this.storageProvider) {
+            this.storageProvider = await StorageFactory.createProvider('minio', this.config);
         }
-        return ImageService.instance;
+        return this.storageProvider;
     }
 
-    private async initialize(bucketName: string) {
-        if (!this.initialized) {
-            try {
-                console.log('Initializing image service and setting up bucket...');
-                await setupBucket(bucketName);
-                this.initialized = true;
-                console.log('Image service initialized successfully');
-            } catch (error) {
-                console.error('Failed to initialize image service:', error);
-                throw error;
-            }
-        }
-    }
-
-    public async uploadImage(options: UploadImageOptions, bucketName: string): Promise<string> {
-        // Asegurar que el bucket está configurado correctamente
-        await this.initialize(bucketName);
-
-        // Validar y detectar el tipo de imagen
-        const detectedType = detectMimeType(options.buffer);
-        if (!isImageMimeType(detectedType)) {
-            throw new Error(`Invalid image format: ${detectedType}. Only JPEG, PNG, GIF and WEBP are supported.`);
-        }
-
-        console.log('Uploading image:', {
-            fileName: options.fileName,
-            contentType: detectedType,
-            size: options.buffer.length
-        });
-
-        // Subir a MinIO
+    public async initialize(): Promise<void> {
         try {
-            const uploadCommand = new PutObjectCommand({
-                Bucket: bucketName,
-                Key: options.fileName,
-                Body: options.buffer,
-                ContentType: detectedType,
+            await this.ensureProvider();
+            console.log('✅ Proveedor de almacenamiento inicializado');
+        } catch (error) {
+            console.error('❌ Error inicializando el proveedor de almacenamiento:', error);
+            throw error;
+        }
+    }
+
+    public generateImageName(userId: string, mimeType: string): string {
+        const timestamp = Date.now();
+        const extension = getFileExtension(mimeType);
+        return `${userId}-${timestamp}.${extension}`;
+    }
+
+    public async uploadImage(options: UploadOptions, bucketName: string): Promise<string> {
+        try {
+            console.log('📥 Iniciando subida de imagen:', {
+                fileName: options.fileName,
+                bucketName,
+                contentType: options.contentType,
+                size: options.buffer.length
             });
 
-            await minioClient.send(uploadCommand);
-            console.log('File uploaded successfully');
+            // Verificar que el tipo MIME es de imagen
+            const detectedType = detectMimeType(options.buffer);
+            console.log('🔍 Tipo MIME detectado:', detectedType);
 
-            // Devolver la URL
-            // Construir URL relativa al image-service en lugar de MinIO directo
-            const imageServiceUrl = process.env.IMAGE_SERVICE_URL || 'http://localhost:3003';
-            const imageUrl = `${imageServiceUrl}/${bucketName}/${options.fileName}`;
-            console.log('Generated URL:', imageUrl);
+            if (!detectedType.startsWith('image/')) {
+                throw new Error('Invalid file type. Only images are allowed.');
+            }
+
+            // Obtener el proveedor y subir el archivo
+            const provider = await this.ensureProvider();
+            const imageUrl = await provider.uploadFile(
+                bucketName,
+                options.fileName,
+                options.buffer,
+                detectedType
+            );
+
+            console.log('✅ Imagen subida exitosamente:', imageUrl);
             return imageUrl;
+
         } catch (error) {
-            console.error('Error uploading file to MinIO:', error);
-            throw new Error('Failed to upload file to storage');
+            console.error('❌ Error en ImageService.uploadImage:', error);
+            throw error;
         }
     }
 
     public async deleteImage(bucketName: string, fileName: string): Promise<void> {
         try {
-            const deleteCommand = new DeleteObjectCommand({
-                Bucket: bucketName,
-                Key: fileName,
-            });
-
-            await minioClient.send(deleteCommand);
-            console.log(`File ${fileName} deleted successfully`);
+            console.log('🗑️ Eliminando imagen:', { bucket: bucketName, file: fileName });
+            const provider = await this.ensureProvider();
+            await provider.deleteFile(bucketName, fileName);
+            console.log('✅ Imagen eliminada exitosamente');
         } catch (error) {
-            console.error('Error deleting file from MinIO:', error);
-            throw new Error('Failed to delete file from storage');
+            console.error('❌ Error eliminando archivo:', error);
+            throw error;
         }
     }
 
-    public generateImageName(userId: string, contentType: string, prefix: string = ''): string {
-        // Usar el tipo MIME para determinar la extensión
-        const extension = getFileExtension(contentType);
-        const timestamp = Date.now();
-        return `${prefix}${userId}-${timestamp}.${extension}`;
+    public async getImage(bucketName: string, fileName: string): Promise<Buffer> {
+        try {
+            console.log('🔍 Obteniendo imagen:', { bucket: bucketName, file: fileName });
+            const provider = await this.ensureProvider();
+            return await provider.getFile(bucketName, fileName);
+        } catch (error) {
+            console.error('❌ Error obteniendo imagen:', error);
+            throw error;
+        }
+    }
+
+    public async getPublicUrl(bucketName: string, fileName: string): Promise<string> {
+        const provider = await this.ensureProvider();
+        return provider.getPublicUrl(bucketName, fileName);
     }
 }
 
-export default ImageService.getInstance();
+// Crear e inicializar el servicio
+const imageService = new ImageService();
+
+// Inicializar el servicio
+(async () => {
+    try {
+        await imageService.initialize();
+    } catch (error) {
+        console.error('❌ Error inicializando ImageService:', error);
+        process.exit(1); // Salir si no podemos inicializar el servicio
+    }
+})();
+
+export default imageService;

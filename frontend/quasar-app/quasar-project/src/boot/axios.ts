@@ -9,7 +9,7 @@ declare module '@vue/runtime-core' {
 
 const api = axios.create({
     baseURL: 'https://api-calistenics.duckdns.org', // API Gateway URL
-    timeout: 10000, // 10 segundos de timeout
+    timeout: 10000,
     headers: {
         'Content-Type': 'application/json',
     }

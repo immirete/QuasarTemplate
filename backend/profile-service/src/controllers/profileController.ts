@@ -36,14 +36,15 @@ export const profileController = (app: Elysia) => app
         }
     })
 
-    // Endpoint para actualizar solo la URL del avatar
-    .put('/profile/:userId/avatar-url', async ({ params: { userId }, body, set, db }: ProfileContext & { params: { userId: string }, body: { avatarUrl: string } }) => {
+    // Endpoint para actualizar el nombre del archivo del avatar
+    .put('/profile/:userId/avatar-url', async ({ params: { userId }, body, set, db }: ProfileContext & { params: { userId: string }, body: { filename: string } }) => {
         try {
-            console.log('📝 Actualizando URL del avatar para usuario:', userId);
-            console.log('🔗 Nueva URL:', body.avatarUrl);
+            console.log('📝 Actualizando avatar para usuario:', userId);
+            console.log('📄 Nombre del archivo:', body.filename);
 
+            // Almacenar solo el nombre del archivo
             const updatedProfile = await db.update(profiles)
-                .set({ avatarUrl: body.avatarUrl })
+                .set({ avatarUrl: body.filename })
                 .where(eq(profiles.userId, userId))
                 .returning();
 
@@ -65,7 +66,7 @@ export const profileController = (app: Elysia) => app
         }
     }, {
         body: t.Object({
-            avatarUrl: t.String()
+            filename: t.String() // Cambiamos avatarUrl por filename para que coincida con lo que enviamos
         })
     })
 

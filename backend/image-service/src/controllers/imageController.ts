@@ -1,6 +1,7 @@
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import imageService from '../services/imageService';
 import { detectMimeType } from '../utils/fileType';
+import { StorageError } from '../storage/StorageProvider';
 
 async function extractFileFromRequest(request: Request): Promise<Buffer> {
     const contentType = request.headers.get('content-type') || '';
@@ -18,29 +19,31 @@ async function extractFileFromRequest(request: Request): Promise<Buffer> {
 }
 
 export const imageController = (app: Elysia) => app
-    // Subir imagen
     .put('/upload/:bucket/:userId', async ({ params: { bucket, userId }, request, set }) => {
         try {
-            console.log('🚀 Iniciando proceso de subida de imagen');
-            console.log(`📁 Bucket: ${bucket}, UserId: ${userId}`);
-            console.log('📨 Headers:', Object.fromEntries(request.headers));
+            console.log('📤 Iniciando subida de imagen:', {
+                bucket,
+                userId,
+                headers: Object.fromEntries(request.headers)
+            });
             
-            // Extraer el archivo
             const buffer = await extractFileFromRequest(request);
+            const detectedType = detectMimeType(buffer);
+
+            if (!detectedType.startsWith('image/')) {
+                console.error('❌ Tipo de archivo inválido:', detectedType);
+                set.status = 400;
+                return { message: 'Invalid file type. Only images are allowed.' };
+            }
+
             console.log('📦 Archivo recibido:', {
-                tamaño: buffer.length,
-                tipoContenido: request.headers.get('content-type')
+                tipo: detectedType,
+                tamaño: buffer.length
             });
 
-            // Detectar el tipo real del archivo
-            const detectedType = detectMimeType(buffer);
-            console.log('Tipo de archivo detectado:', detectedType);
-
-            // Generar nombre único para la imagen
             const fileName = imageService.generateImageName(userId, detectedType);
-            console.log('Nombre de archivo generado:', fileName);
+            console.log('📝 Nombre generado:', fileName);
 
-            // Subir la imagen
             const imageUrl = await imageService.uploadImage(
                 {
                     buffer,
@@ -50,71 +53,66 @@ export const imageController = (app: Elysia) => app
                 bucket
             );
 
+            console.log('✅ Imagen subida exitosamente:', imageUrl);
             set.status = 201;
             return { message: 'Image uploaded successfully', url: imageUrl };
         } catch (error: any) {
-            console.error('Error uploading image:', error);
-            set.status = 500;
+            console.error('❌ Error subiendo imagen:', error);
+            set.status = error instanceof StorageError ? 400 : 500;
             return { message: 'Failed to upload image', error: error.message };
         }
     })
 
-    // Servir imagen
     .get('/:bucket/:imageId', async ({ params: { bucket, imageId }, set }) => {
         try {
-            const minioUrl = `${ 'http://localhost:9002'}/${bucket}/${imageId}`;
-            console.log('Accediendo a MinIO URL:', minioUrl);
+            console.log('🔍 Solicitando imagen:', { bucket, imageId });
 
-            const response = await fetch(minioUrl);
-            
-            if (!response.ok) {
-                set.status = response.status;
-                return { message: 'Error accessing image' };
+            const imageData = await imageService.getImage(bucket, imageId);
+            if (!imageData || imageData.length === 0) {
+                console.error('❌ Imagen no encontrada');
+                set.status = 404;
+                return { message: 'Image not found' };
             }
 
-            // Configurar los headers para la respuesta
-            const contentType = response.headers.get('content-type');
-            const contentLength = response.headers.get('content-length');
-            const etag = response.headers.get('etag');
-            const lastModified = response.headers.get('last-modified');
+            // Detectar el tipo MIME de la imagen
+            const detectedType = detectMimeType(imageData);
+            console.log('🎨 Tipo MIME detectado:', detectedType);
 
-            if (contentType) set.headers['Content-Type'] = contentType;
-            if (contentLength) set.headers['Content-Length'] = contentLength;
-            if (etag) set.headers['ETag'] = etag;
-            if (lastModified) set.headers['Last-Modified'] = lastModified;
+            // Configurar headers para la respuesta
+            const headers = new Headers({
+                'Content-Type': detectedType,
+                'Content-Length': imageData.length.toString(),
+                'Cache-Control': 'public, max-age=31536000',
+                'Access-Control-Allow-Origin': '*',
+                'Accept-Ranges': 'bytes'
+            });
 
-            set.headers['Cache-Control'] = 'public, max-age=31536000';
-            set.headers['Access-Control-Allow-Origin'] = '*';
+            console.log('📤 Enviando imagen:', {
+                tipo: detectedType,
+                tamaño: imageData.length,
+                headers: Object.fromEntries(headers.entries())
+            });
 
-            // Devolver la imagen como buffer
-            const buffer = await response.arrayBuffer();
-            return new Uint8Array(buffer);
+            // Devolver la imagen como Response con los headers correctos
+            return new Response(imageData, { headers });
         } catch (error) {
-            console.error('Error serving image:', error);
-            set.status = 500;
-            return { message: 'Error serving image' };
+            console.error('❌ Error sirviendo imagen:', error);
+            set.status = error instanceof StorageError ? 404 : 500;
+            return { message: 'Error serving image', error: error instanceof Error ? error.message : 'Unknown error' };
         }
     })
 
-    // Eliminar imagen
-  // Eliminar imagen en image-service
-    .delete('/delete/profile-images/:filename', async ({ params: { filename }, set }) => {
-    try {
-        console.log('🗑 Eliminando imagen:', filename);
-        const minioDeleteUrl =  `${'http://localhost:9002/profile-images/'}/${filename}`;
-        
-        const deleteResponse = await fetch(minioDeleteUrl, { method: 'DELETE' });
-
-        if (!deleteResponse.ok) {
-            set.status = deleteResponse.status;
-            return { message: 'Error deleting image' };
+    .delete('/delete/:bucket/:filename', async ({ params: { bucket, filename }, set }) => {
+        try {
+            console.log('🗑 Eliminando imagen:', { bucket, filename });
+            
+            await imageService.deleteImage(bucket, filename);
+            
+            set.status = 200;
+            return { message: 'Image deleted successfully' };
+        } catch (error) {
+            console.error('❌ Error eliminando imagen:', error);
+            set.status = error instanceof StorageError ? 404 : 500;
+            return { message: 'Failed to delete image', error: error instanceof Error ? error.message : 'Unknown error' };
         }
-
-        set.status = 200;
-        return { message: 'Image deleted successfully' };
-    } catch (error) {
-        console.error('❌ Error deleting image:', error);
-        set.status = 500;
-        return { message: 'Failed to delete image', error: error };
-    }
-});
+    });
