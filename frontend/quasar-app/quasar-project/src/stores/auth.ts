@@ -27,11 +27,11 @@ interface ErrorResponse {
 
 export const useAuthStore = defineStore('auth', {
     state: () => ({
-        token: localStorage.getItem('token') || '',
-        isLoggedIn: !!localStorage.getItem('token'),
+        token: sessionStorage.getItem('token') || '',
+        isLoggedIn: !!sessionStorage.getItem('token'),
         loading: false,
         error: null as string | null,
-        user: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null as UserProfile | null,
+        user: sessionStorage.getItem('user') ? JSON.parse(sessionStorage.getItem('user')!) : null as UserProfile | null,
     }),
     getters: {
         userId(): string | null {
@@ -62,10 +62,10 @@ export const useAuthStore = defineStore('auth', {
                 this.token = response.data.token;
                 this.user = response.data.user;
 
-                localStorage.setItem('token', this.token);
-                localStorage.setItem('user', JSON.stringify(this.user));
-                console.log(localStorage.getItem('user'));
-                console.log(localStorage.getItem('token'));
+                sessionStorage.setItem('token', this.token);
+                sessionStorage.setItem('user', JSON.stringify(this.user));
+                console.log(sessionStorage.getItem('user'));
+                console.log(sessionStorage.getItem('token'));
                 this.isLoggedIn = true;
                 this.loading = false;
                 return { success: true };
@@ -74,7 +74,7 @@ export const useAuthStore = defineStore('auth', {
                 this.error = axiosError.response?.data?.message || 'Login failed';
                 this.loading = false;
                 this.isLoggedIn = false;
-                localStorage.removeItem('token');
+                sessionStorage.removeItem('token');
                 return { success: false, error: this.error };
             }
         },
@@ -82,8 +82,8 @@ export const useAuthStore = defineStore('auth', {
             this.token = '';
             this.isLoggedIn = false;
             this.user = null;
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
+            sessionStorage.removeItem('token');
+            sessionStorage.removeItem('user');
         },
         async getProfile(): Promise<void> {
             if (!this.userId) {
@@ -94,7 +94,7 @@ export const useAuthStore = defineStore('auth', {
             try {
                 const response = await api.get<UserProfile>(`/profile/${this.userId}`);
                 this.user = response.data;
-                localStorage.setItem('user', JSON.stringify(this.user));
+                sessionStorage.setItem('user', JSON.stringify(this.user));
             } catch (error) {
                 const axiosError = error as AxiosError<ErrorResponse>;
                 this.error = axiosError.response?.data?.message || 'Failed to fetch profile';

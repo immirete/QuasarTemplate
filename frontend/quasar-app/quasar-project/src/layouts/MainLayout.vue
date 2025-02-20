@@ -11,10 +11,10 @@
           @click="leftDrawerOpen = !leftDrawerOpen"
         />
         <q-toolbar-title class="text-primary text-weight-bold">
-          Black Photo
+          Calistenics
         </q-toolbar-title>
         <q-avatar class="cursor-pointer" @click="router.push('/profile')">
-          <img :src="userStore.profile.avatar">
+          <img :src="avatarUrl" @error="onImageError">
           <q-tooltip>Mi Perfil</q-tooltip>
         </q-avatar>
       </q-toolbar>
@@ -87,7 +87,7 @@
         <q-item-section>
           <div class="row items-center">
             <q-avatar size="md">
-              <img :src="userStore.profile.avatar">
+              <img :src="avatarUrl" @error="onImageError">
             </q-avatar>
             <div class="q-ml-sm">
               <div class="text-weight-bold">{{ userStore.profile.name }}</div>
@@ -99,20 +99,62 @@
     </q-drawer>
 
     <q-page-container>
-      <router-view />
+      <router-view @profile-updated="updateAvatar" />
     </q-page-container>
   </q-layout>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from 'src/stores/user-store';
+import { api } from 'src/boot/axios';
+import { useAuthStore } from 'src/stores/auth';
+
+const API_URL = process.env.API_URL || 'https://api-calistenics.duckdns.org';
+const DEFAULT_AVATAR = 'https://cdn-icons-png.flaticon.com/512/8847/8847419.png';
 
 const userStore = useUserStore();
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const leftDrawerOpen = ref(false);
+const avatarFilename = ref('');
+
+const avatarUrl = computed(() => {
+  if (!avatarFilename.value) return DEFAULT_AVATAR;
+  return `${API_URL}/api/v1/profile/images/profile-images/${avatarFilename.value}`;
+});
+
+const updateAvatar = (filename: string) => {
+  console.log('Actualizando avatar:', filename);
+  avatarFilename.value = filename;
+};
+
+const onImageError = (e: Event) => {
+  const img = e.target as HTMLImageElement;
+  img.src = DEFAULT_AVATAR;
+};
+
+const fetchInitialAvatar = async () => {
+  if (!authStore.userId) return;
+  
+  try {
+    const response = await api.get(`/profile/${authStore.userId}`);
+    if (response.data.data?.avatarUrl) {
+      const filename = response.data.data.avatarUrl.split('/').pop();
+      if (filename) {
+        updateAvatar(filename);
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching avatar:', error);
+  }
+};
+
+onMounted(() => {
+  fetchInitialAvatar();
+});
 </script>
 
 <style lang="scss">

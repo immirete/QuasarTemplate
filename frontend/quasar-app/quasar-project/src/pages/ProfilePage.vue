@@ -6,7 +6,7 @@
           <q-card-section class="profile-header">
             <div class="text-center q-mb-md">
               <q-avatar size="150px">
-                <img :src="editedProfile.avatarUrl || 'https://cdn.quasar.dev/img/avatar3.svg'">
+                <img :src="avatarUrl" @error="onImageError">
               </q-avatar>
               <q-btn
                 color="primary"
@@ -38,7 +38,7 @@
                 color="primary"
                 label="Cerrar sesión"
                 @click="logout"
-                class="q-mt-md"
+                class="q-mt-md q-ml-sm"
               />
             </div>
 
@@ -89,7 +89,7 @@
         </q-card>
 
         <div class="q-mt-lg">
-          <div class="text-h6 q-mb-md">Mis Tweets (Ejemplo - No implementado completamente)</div>
+          <div class="text-h6 q-mb-md">Mis Tweets</div>
           <div>
             <p class="text-grey-8">Funcionalidad de Tweets no implementada en este ejemplo.</p>
           </div>
@@ -100,11 +100,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, defineEmits } from 'vue';
 import { useAuthStore } from 'src/stores/auth';
 import { useRouter } from 'vue-router';
 import { api } from 'boot/axios';
 import { useQuasar } from 'quasar';
+
+const emit = defineEmits(['profile-updated']);
+const API_URL = process.env.API_URL || 'https://api-calistenics.duckdns.org';
+const DEFAULT_AVATAR = 'https://cdn.quasar.dev/img/avatar3.svg';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -113,11 +117,6 @@ const $q = useQuasar();
 const editing = ref(false);
 const isSaving = ref(false);
 const isUploading = ref(false);
-
-interface ApiResponse<T> {
-  message: string;
-  data: T;
-}
 
 interface EditedProfile {
   firstName?: string;
@@ -131,8 +130,10 @@ const editedProfile = ref<EditedProfile>({
   email: '',
 });
 
-onMounted(async () => {
-  await fetchProfile();
+// Computed property para la URL del avatar
+const avatarUrl = computed(() => {
+  if (!editedProfile.value.avatarUrl) return DEFAULT_AVATAR;
+  return editedProfile.value.avatarUrl;
 });
 
 const fetchProfile = async () => {
@@ -147,7 +148,7 @@ const fetchProfile = async () => {
   }
 
   try {
-    const response = await api.get<ApiResponse<EditedProfile>>(`/profile/${authStore.userId}`);
+    const response = await api.get(`/profile/${authStore.userId}`);
     editedProfile.value = response.data.data;
   } catch (error: any) {
     console.error('Error fetching profile:', error);
@@ -168,13 +169,13 @@ const logout = async () => {
   router.push('/login');
 };
 
-function startEditing() {
+const startEditing = () => {
   editing.value = true;
-}
+};
 
-function cancelEditing() {
+const cancelEditing = () => {
   editing.value = false;
-}
+};
 
 const saveProfileData = async () => {
   isSaving.value = true;
@@ -216,16 +217,14 @@ const handleAvatarUpload = async (event: Event) => {
     const formData = new FormData();
     formData.append('avatar', file, file.name);
 
-    console.log('Uploading avatar...', {
-      userId: authStore.userId,
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size
-    });
-
     const response = await api.put(`/profile/${authStore.userId}/avatar`, formData);
-    console.log('Upload response:', response.data);
     
+    // Emitir el nombre del archivo al layout
+    if (response.data.avatarUrl) {
+      const filename = response.data.avatarUrl.split('/').pop();
+      emit('profile-updated', filename);
+    }
+
     await fetchProfile();
     $q.notify({
       type: 'positive',
@@ -241,8 +240,17 @@ const handleAvatarUpload = async (event: Event) => {
     });
   } finally {
     isUploading.value = false;
+    if (target) target.value = ''; // Limpiar input para permitir subir el mismo archivo otra vez
   }
 };
+
+const onImageError = (e: Event) => {
+  const img = e.target as HTMLImageElement;
+  img.src = DEFAULT_AVATAR;
+};
+
+// Cargar perfil al montar el componente
+fetchProfile();
 </script>
 
 <style lang="scss" scoped>
